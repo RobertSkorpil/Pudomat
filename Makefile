@@ -5,17 +5,21 @@ CFLAGS = -Os -std=gnu99
 
 all: bin/firmware.dump bin/pudomat
 
-.PHONY : upload clean
+.PHONY : upload clean setuid
 upload: bin/firmware.elf
 	sudo avrdude -c dapa -p m168 -U flash:w:bin/firmware.elf
 
 clean:
 	rm -f bin/* obj/*
 
+setuid: bin/pudomat
+	sudo chown root bin/pudomat 
+	sudo chmod 4777 bin/pudomat
+
 bin/pudomat: obj/app.o
 	gcc $(CFLAGS) $^ -lusb-1.0 -o$@
 
-obj/app.o: src/app.c
+obj/app.o: src/app.c src/comm.h
 	gcc $(CFLAGS) -c -o$@ $<
 
 bin/firmware.dump: bin/firmware.elf
@@ -24,7 +28,7 @@ bin/firmware.dump: bin/firmware.elf
 bin/firmware.elf: obj/firmware.o obj/usbdrv.o obj/usbdrvasm.o obj/ds18b20.o obj/onewire.o obj/romsearch.o
 	avr-gcc $(AVRCFLAGS) -o$@ $^
 
-obj/firmware.o: src/firmware.c
+obj/firmware.o: src/firmware.c src/comm.h
 	avr-gcc $(AVRCFLAGS) -c -o$@ $<
 
 obj/usbdrvasm.o: src/usbdrvasm.S
