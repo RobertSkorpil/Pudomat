@@ -36,4 +36,4 @@ struct temp_data {
 struct temp_response {
     struct temp_data data[MAX_TEMP_COUNT];
 };
-	
+    

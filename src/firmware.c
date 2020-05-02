@@ -61,7 +61,7 @@ static void write_config()
     eeprom_write_block(&config, &config_eeprom, sizeof(config));
 }
 
-	
+    
 static void green_on()
 {
     BIT_ON(PORTB, PINB1);
@@ -310,8 +310,8 @@ static void finish_temp_read()
 
 static usbMsgLen_t handle_temperature_request()
 {
-	usbMsgPtr = (usbMsgPtr_t)&temp_response;
-	return sizeof(temp_response);
+    usbMsgPtr = (usbMsgPtr_t)&temp_response;
+    return sizeof(temp_response);
 }
 
 #ifdef VOLT
@@ -355,21 +355,21 @@ uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
 
 usbMsgLen_t usbFunctionSetup(unsigned char data[8])
 {
-	usbRequest_t *req = (void *)data;
-	switch(req->bRequest)
-	{
+    usbRequest_t *req = (void *)data;
+    switch(req->bRequest)
+    {
 #ifdef VOLT    
     case CMD_VOLT:
         return handle_voltmeter_request();
 #endif    
-	case CMD_TEMP:
-		return handle_temperature_request();
+    case CMD_TEMP:
+        return handle_temperature_request();
     case CMD_CFG_READ:
         return handle_cfg_read_request();
     case CMD_CFG_WRITE:
         return handle_cfg_write_request();
-	}
-	return 0;
+    }
+    return 0;
 }
 
 uint8_t t0ov_counter = 0;
