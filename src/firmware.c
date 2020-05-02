@@ -6,6 +6,7 @@
 #include <util/twi.h>
 #include "ds18b20.h"
 #include "usbdrv.h"
+#include "romsearch.h"
 #include "comm.h"
 
 #define BIT_ON(r, b) (r |= (1 << b))
@@ -37,26 +38,30 @@ static uint8_t led_on;
 
 struct config config;
 struct config config_eeprom EEMEM;
+static uint8_t *config_write_tgt = (uint8_t *)&config;
 
 #ifdef VOLT
 static struct volt_response volt_response;
 #endif
 
 static struct temp_response temp_response;
-	
-static void init()
+
+static void read_config()
 {
-    BIT_OFF(MCUCR, PUD);              // enable pull-ups
-    BIT_ON(DDRB, PINB1);              // enable LED
-    BIT_ON(DDRC, PINC0);              // enable relay
-    TCCR0B |= ((1<<CS02)|(1<<CS00));  // timer0 clk/1024 prescaler
-    BIT_ON(TIMSK0, TOIE0);            // timer0 overflow interrupt
-    BIT_ON(TWSR, TWPS1);              // 1/16 TWI prescaler
-    TWBR = 4;                         // TWI Bit Rate
-    //TWI Bit Rate = 12MHz / (16 + 2*TWBR*TWIPrescale) =
-    //               12MHz / (16 + 2*4*16) = 83kHz
+    eeprom_read_block(&config, &config_eeprom, sizeof(config));
+    if(!config.signature != CONFIG_SIGNATURE)
+    {
+        config.solar_relay_decivolt_lo = 126;
+        config.solar_relay_decivolt_hi = 154;
+    }
 }
 
+static void write_config()
+{
+    eeprom_write_block(&config, &config_eeprom, sizeof(config));
+}
+
+	
 static void green_on()
 {
     BIT_ON(PORTB, PINB1);
@@ -305,17 +310,48 @@ static void finish_temp_read()
 
 static usbMsgLen_t handle_temperature_request()
 {
-	usbMsgPtr = &temp_response;
+	usbMsgPtr = (usbMsgPtr_t)&temp_response;
 	return sizeof(temp_response);
 }
 
 #ifdef VOLT
 static usbMsgLen_t handle_voltmeter_request()
 {
-    usbMsgPtr = &volt_response;
+    usbMsgPtr = (usbMsgPtr_t)&volt_response;
     return sizeof(volt_response);
 }
 #endif
+
+static usbMsgLen_t handle_cfg_read_request()
+{
+    usbMsgPtr = (usbMsgPtr_t)&config;
+    return sizeof(config);
+}
+
+static usbMsgLen_t handle_cfg_write_request()
+{
+    config_write_tgt = (void *)&config;
+    return USB_NO_MSG;
+}
+
+uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
+{
+    if(config_write_tgt + len > (uint8_t *)(&config + 1) ||
+       config_write_tgt < (uint8_t *)&config)
+        return -1;
+
+    memcpy(config_write_tgt, data, len);
+    config_write_tgt += len;
+
+    if(config_write_tgt == (uint8_t *)(&config + 1))
+    {
+        write_config();
+        set_led_alert(TIME_350ms, 4);
+        return 0;
+    }
+    else
+        return 1;
+}
 
 usbMsgLen_t usbFunctionSetup(unsigned char data[8])
 {
@@ -328,6 +364,10 @@ usbMsgLen_t usbFunctionSetup(unsigned char data[8])
 #endif    
 	case CMD_TEMP:
 		return handle_temperature_request();
+    case CMD_CFG_READ:
+        return handle_cfg_read_request();
+    case CMD_CFG_WRITE:
+        return handle_cfg_write_request();
 	}
 	return 0;
 }
@@ -409,10 +449,10 @@ static void handle_volt()
             twi_op(0x80, 0x02, &volt_response.voltage, TWI_OP_READ);
             volt_state = VS_ACTION;
             break;
-        case 3:
-            if(volt_response.voltage < (int)(12.6 * 2000))
+        case VS_ACTION:
+            if(volt_response.voltage < config.solar_relay_decivolt_lo * 200)
                 relay_off();
-            if(volt_response.voltage > (int)(15.4 * 2000))
+            if(volt_response.voltage > config.solar_relay_decivolt_hi * 200)
                 relay_on();
             volt_state = VS_CONFIG;
             break;
@@ -435,12 +475,27 @@ void timer_interrupt()
   t0ov_counter++;
 }
 
+static void init()
+{
+    BIT_OFF(MCUCR, PUD);              // enable pull-ups
+    BIT_ON(DDRB, PINB1);              // enable LED
+    BIT_ON(DDRC, PINC0);              // enable relay
+    TCCR0B |= ((1<<CS02)|(1<<CS00));  // timer0 clk/1024 prescaler
+    BIT_ON(TIMSK0, TOIE0);            // timer0 overflow interrupt
+    BIT_ON(TWSR, TWPS1);              // 1/16 TWI prescaler
+    TWBR = 4;                         // TWI Bit Rate
+    //TWI Bit Rate = 12MHz / (16 + 2*TWBR*TWIPrescale) =
+    //               12MHz / (16 + 2*4*16) = 83kHz
+}
+
 void __attribute__((noreturn)) main(void)
 {
     cli();
     init();
     relay_off(); 
     green_on();
+
+    read_config();
 
     usbInit();
     usbDeviceDisconnect();
@@ -453,6 +508,6 @@ void __attribute__((noreturn)) main(void)
     set_led_alert(TIME_87ms, 3);
 
     for(;;)
-        usbPoll();   
+        usbPoll();
 }
 

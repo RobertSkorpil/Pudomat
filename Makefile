@@ -23,7 +23,7 @@ obj/app.o: src/app.c src/comm.h
 	gcc $(CFLAGS) -c -o$@ $<
 
 bin/firmware.dump: bin/firmware.elf
-	avr-objdump -d $< > $@
+	avr-objdump -xd $< > $@
 
 bin/firmware.elf: obj/firmware.o obj/usbdrv.o obj/usbdrvasm.o obj/ds18b20.o obj/onewire.o obj/romsearch.o
 	avr-gcc $(AVRCFLAGS) -o$@ $^

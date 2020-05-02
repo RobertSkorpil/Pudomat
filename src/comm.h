@@ -7,22 +7,22 @@ enum command {
     CMD_CFG_WRITE = 5,
 };
 
+#define CONFIG_SIGNATURE 0xCC
 struct config {
-    union {
-        uint8_t solar_relay_decivolt_low;
-        uint8_t configured;
-    };
+    uint64_t door_temp_id_A;
+    uint64_t door_temp_id_B;
+    uint8_t solar_relay_decivolt_lo;
     uint8_t solar_relay_decivolt_hi;
-    uint8_t door_relay_temp_diff_low;
-    uint8_t door_relay_temp_diff_high;
-    uint64_t door_relay_temp_id_A;
-    uint64_t door_relay_temp_id_B;
+    uint8_t door_temp_diff_close;
+    uint8_t door_temp_diff_open;
+    uint8_t signature;
 };
 
 struct volt_response {
     uint16_t voltage;
     uint16_t current;
     uint8_t relay;
+    uint8_t padding;
 };
 
 struct temp_data {

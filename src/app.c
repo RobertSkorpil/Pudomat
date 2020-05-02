@@ -16,22 +16,22 @@ const char *translate_error(int status) {
         message = NULL;
         break;
     case LIBUSB_TRANSFER_ERROR:
-        message = "Chyba!";
+        message = "Chyba";
         break;
     case LIBUSB_TRANSFER_TIMED_OUT:
-        message = "Vyprsel cas!";
+        message = "Vyprsel cas";
         break;
     case LIBUSB_TRANSFER_CANCELLED:
         message = "Zruseno";
         break;
     case LIBUSB_TRANSFER_STALL:
-        message = "Chciplo to";
+        message = "Chyba prenosu dat";
         break;
     case LIBUSB_TRANSFER_NO_DEVICE:
         message = "Odpojeno";
         break;
     case LIBUSB_TRANSFER_OVERFLOW:
-        message = "Preteklo to";
+        message = "Preteceni datoveho bufferu";
         break;
     }
 
@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
 
     if (!dev_handle) {
         fprintf(stderr,
-                "Pudomat nenalezen! (mozna nebezis jako root?)\n");
+                "Pudomat nenalezen (mozna nebezis jako root?)\n");
         return 1;
     }
 
@@ -128,10 +128,17 @@ int main(int argc, char *argv[]) {
         goto err;
 
     char transfer_buffer[4096];
-    int cmd = 3;
+    int cmd = CMD_TEMP;
 
-    if (argc > 1 && strcmp(argv[1], "volt") == 0)
-        cmd = 2;
+    if (argc > 1)
+    { 
+        if(strcmp(argv[1], "volt") == 0)
+            cmd = CMD_VOLT;
+        else if(strcmp(argv[1], "cr") == 0)
+            cmd = CMD_CFG_READ;
+        else if(strcmp(argv[1], "wdc") == 0)
+            cmd = CMD_CFG_WRITE;
+    }
 
     void *response_data = NULL;
     transfer_fail = 0;
@@ -186,7 +193,7 @@ int main(int argc, char *argv[]) {
             // convert_current(r->current));
             break;
         }
-        case 3:
+        case CMD_TEMP:
         {
             struct temp_response *r = response_data;
             qsort(r->data, sizeof(r->data) / sizeof(r->data[0]),
@@ -205,15 +212,27 @@ int main(int argc, char *argv[]) {
 
             break;
         }
+        case CMD_CFG_READ:
+        {
+            struct config *r = response_data;
+            int configured = r->signature == CONFIG_SIGNATURE;
+            printf("Konfigurovano:                  %s\n", configured ? "ANO" : "NE");
+            printf("Napeti vypnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_lo / 10.0 );
+            printf("Napeti zapnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_hi / 10.0 );
+            printf("Teplotni rozdil zavreni dveri:  %d°C\n", r->door_temp_diff_close);
+            printf("Teplotni rozdil otevreni dveri: %d°C\n", r->door_temp_diff_open);
+            printf("ID teplomeru u schodu:          x'%016lX'\n", r->door_temp_id_A);
+            printf("ID teplomeru v pracovne:        x'%016lX'\n", r->door_temp_id_B);
+        }
+        break;
         }
     } else {
-        fprintf(stderr, "divna delka odpovedi");
+        fprintf(stderr, "Chybna delka odpovedi\n");
         goto err;
     }
 
     return 0;
 
 err:
-    fprintf(stderr, "Neco se nepovedlo...\n");
     return 1;
 }
