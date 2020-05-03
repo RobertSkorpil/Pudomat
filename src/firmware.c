@@ -49,7 +49,7 @@ static struct temp_response temp_response;
 static void read_config()
 {
     eeprom_read_block(&config, &config_eeprom, sizeof(config));
-    if(!config.signature != CONFIG_SIGNATURE)
+    if(config.signature != CONFIG_SIGNATURE)
     {
         config.solar_relay_decivolt_lo = 126;
         config.solar_relay_decivolt_hi = 154;
@@ -147,24 +147,8 @@ static void twi_op(uint8_t address, uint8_t reg, uint16_t *val, uint8_t op)
 }
 #endif
 
-static void twi_interrupt();
-static void timer_interrupt();
-ISR(TWI_vect)
-{
-    if(TWCR & (1 << TWINT))
-#ifdef VOLT    
-        twi_interrupt();
-#else
-    ;
-#endif  
-    else
-        timer_interrupt();
-}
-
-ISR(TIMER0_OVF_vect, ISR_ALIASOF(TWI_vect));
-
 #ifdef VOLT
-static void twi_interrupt()
+ISR(TWI_vect)
 {
     uint8_t twcr = 0;
   
@@ -328,29 +312,33 @@ static usbMsgLen_t handle_cfg_read_request()
     return sizeof(config);
 }
 
-static usbMsgLen_t handle_cfg_write_request()
+static usbMsgLen_t handle_cfg_write_request(usbRequest_t *req)
 {
+    if(req->wLength.word != sizeof(struct config))
+        return 0;
+
     config_write_tgt = (void *)&config;
+    config.solar_relay_decivolt_lo = 0;
     return USB_NO_MSG;
 }
 
 uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
 {
-    if(config_write_tgt + len > (uint8_t *)(&config + 1) ||
-       config_write_tgt < (uint8_t *)&config)
+    if(config_write_tgt + len > (uint8_t *)(&config + 1))
         return -1;
 
     memcpy(config_write_tgt, data, len);
     config_write_tgt += len;
 
-    if(config_write_tgt == (uint8_t *)(&config + 1))
-    {
+    if(config_write_tgt >= (uint8_t *)(&config + 1))
+    {    
         write_config();
+        read_config();
         set_led_alert(TIME_350ms, 4);
-        return 0;
+        return 1;
     }
     else
-        return 1;
+        return 0;
 }
 
 usbMsgLen_t usbFunctionSetup(unsigned char data[8])
@@ -367,7 +355,7 @@ usbMsgLen_t usbFunctionSetup(unsigned char data[8])
     case CMD_CFG_READ:
         return handle_cfg_read_request();
     case CMD_CFG_WRITE:
-        return handle_cfg_write_request();
+        return handle_cfg_write_request(req);
     }
     return 0;
 }
@@ -422,12 +410,6 @@ static void handle_thermo()
     }
 }
 
-static void handle_usb()
-{
-    if(is_time(TIME_87ms, 0))
-        usbPoll();
-}
-
 #ifdef VOLT
 static void handle_volt()
 {
@@ -461,8 +443,7 @@ static void handle_volt()
 }
 #endif
 
-//ISR(TIMER0_OVF_vect)
-void timer_interrupt()
+ISR(TIMER0_OVF_vect)
 {
   handle_leds();
 
@@ -470,9 +451,13 @@ void timer_interrupt()
 #ifdef VOLT
   handle_volt();
 #endif
-  handle_usb();
 
   t0ov_counter++;
+}
+
+ISR(TIMER2_OVF_vect)
+{
+    usbPoll();
 }
 
 static void init()
@@ -486,6 +471,8 @@ static void init()
     TWBR = 4;                         // TWI Bit Rate
     //TWI Bit Rate = 12MHz / (16 + 2*TWBR*TWIPrescale) =
     //               12MHz / (16 + 2*4*16) = 83kHz
+    TCCR2B |= ((1<<CS21)|(1<<CS20));  // timer2 clk/32 prescaler
+    BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
 }
 
 void __attribute__((noreturn)) main(void)
@@ -507,7 +494,6 @@ void __attribute__((noreturn)) main(void)
 
     set_led_alert(TIME_87ms, 3);
 
-    for(;;)
-        usbPoll();
+    for(;;);
 }
 

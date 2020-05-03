@@ -1,3 +1,4 @@
+PART = m168
 AVRFLAGS = -mmcu=atmega168 -g -Isrc/
 AVRCFLAGS = $(AVRFLAGS) -Os -std=gnu99 -mcall-prologues -DF_CPU=12000000
 AVRSFLAGS = $(AVRFLAGS) -x assembler-with-cpp
@@ -5,9 +6,12 @@ CFLAGS = -Os -std=gnu99
 
 all: bin/firmware.dump bin/pudomat
 
-.PHONY : upload clean setuid
+.PHONY : upload fuses clean setuid
 upload: bin/firmware.elf
-	sudo avrdude -c dapa -p m168 -U flash:w:bin/firmware.elf
+	sudo avrdude -c dapa -p $(PART) -U flash:w:bin/firmware.elf
+
+fuses:
+	sudo avrdude -c dapa -p $(PART) -U efuse:w:0xff:m -U hfuse:w:0xD7:m -U lfuse:w:0xFF:m
 
 clean:
 	rm -f bin/* obj/*
@@ -34,7 +38,7 @@ obj/firmware.o: src/firmware.c src/comm.h
 obj/usbdrvasm.o: src/usbdrvasm.S
 	avr-gcc $(AVRCFLAGS) -c -o$@ $<
 
-obj/usbdrv.o: src/usbdrv.c
+obj/usbdrv.o: src/usbdrv.c src/usbconfig.h
 	avr-gcc $(AVRCFLAGS) -c -o$@ $<
 
 obj/ds18b20.o: src/ds18b20.c

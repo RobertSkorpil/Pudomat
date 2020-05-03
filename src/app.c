@@ -52,22 +52,12 @@ double convert_voltage(int t) { return (double)(t >> 3) * 0.004; }
 
 double convert_current(int t) { return (double)(t >> 3) * 0.004 * 100; }
 
-void prepare_temp_cmd(struct libusb_transfer *transfer, char *buffer,
+void prepare_request(struct libusb_transfer *transfer, char *buffer,
                       size_t buf_size, libusb_device_handle *dev_handle,
                       int cmd) {
-    libusb_fill_control_transfer(transfer, dev_handle, buffer, transfer_cb,
-                                 NULL, 50);
-    struct libusb_control_setup *ctrl =
-        libusb_control_transfer_get_setup(transfer);
-    ctrl->bmRequestType = LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR |
-                          LIBUSB_ENDPOINT_OUT;
-    ctrl->bRequest = cmd;
-    ctrl->wValue = 0;
-    ctrl->wIndex = 0;
-    ctrl->wLength = 0;
 }
 
-void prepare_temp_cmd_response(struct libusb_transfer *transfer, char *buffer,
+void prepare_response(struct libusb_transfer *transfer, char *buffer,
                                size_t buf_size,
                                libusb_device_handle *dev_handle) {
     libusb_fill_control_transfer(transfer, dev_handle, buffer, transfer_cb,
@@ -127,7 +117,7 @@ int main(int argc, char *argv[]) {
     if (!transfer)
         goto err;
 
-    char transfer_buffer[4096];
+    uint16_t transfer_buffer[256] = { 0 };
     int cmd = CMD_TEMP;
 
     if (argc > 1)
@@ -143,14 +133,30 @@ int main(int argc, char *argv[]) {
     void *response_data = NULL;
     transfer_fail = 0;
     for (int retry = 0; retry < 3; retry++) {
-        prepare_temp_cmd(transfer, transfer_buffer, sizeof(transfer_buffer),
-                         dev_handle, cmd);
+        libusb_fill_control_setup((void *)transfer_buffer, 
+                                   LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT,
+                                   cmd,
+                                   0,
+                                   0,
+                                   (cmd == CMD_CFG_WRITE) ? sizeof(struct config) : 0);
+        if(cmd == CMD_CFG_WRITE)
+        {
+            struct config *config = (void *)(transfer_buffer + 4);
+            config->solar_relay_decivolt_lo = 130;
+            config->solar_relay_decivolt_hi = 145;
+            config->signature = CONFIG_SIGNATURE;
+        }
+        libusb_fill_control_transfer(transfer, dev_handle, (void *)transfer_buffer, transfer_cb,
+                                     NULL, 500);
+        
         libusb_submit_transfer(transfer);
         libusb_handle_events(ctx);
         usleep(50000);
 
         if (!transfer_fail) {
-            prepare_temp_cmd_response(transfer, transfer_buffer,
+            if(cmd == CMD_CFG_WRITE)
+                break;
+            prepare_response(transfer, (void *)transfer_buffer,
                                       sizeof(transfer_buffer), dev_handle);
             libusb_submit_transfer(transfer);
             libusb_handle_events(ctx);
@@ -179,60 +185,67 @@ int main(int argc, char *argv[]) {
 
     char line[256] = {0};
     char t[64];
-    if (transfer->actual_length) {
-        switch (cmd) {
-        case CMD_VOLT:
-        {
-            struct volt_response *r = response_data;
-            strcat(line, ts);
-            sprintf(t, " %.2lf %d", convert_voltage(r->voltage),
-                    r->relay ? 14 : 12);
-            strcat(line, t);
-            printf("%s\n", line);
-            // printf("U = %.2lfV, I = %.1lfmA\n", convert_voltage(r->voltage),
-            // convert_current(r->current));
-            break;
-        }
-        case CMD_TEMP:
-        {
-            struct temp_response *r = response_data;
-            qsort(r->data, sizeof(r->data) / sizeof(r->data[0]),
-                  sizeof(r->data[0]), comp_temp);
 
-            strcat(line, ts);
+    switch (cmd) {
+    case CMD_VOLT:
+    {
+        if(transfer->actual_length != sizeof(struct volt_response))
+            goto bad_length; 
 
-            for (int i = 0; i < sizeof(r->data) / sizeof(r->data[0]); i++) {
-                if (!r->data[i].valid)
-                    break;
-
-                sprintf(t, " %d", (int)convert_temperature(r->data[i].temperature));
-                strcat(line, t);
-            }
-            printf("%s\n", line);
-
-            break;
-        }
-        case CMD_CFG_READ:
-        {
-            struct config *r = response_data;
-            int configured = r->signature == CONFIG_SIGNATURE;
-            printf("Konfigurovano:                  %s\n", configured ? "ANO" : "NE");
-            printf("Napeti vypnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_lo / 10.0 );
-            printf("Napeti zapnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_hi / 10.0 );
-            printf("Teplotni rozdil zavreni dveri:  %d°C\n", r->door_temp_diff_close);
-            printf("Teplotni rozdil otevreni dveri: %d°C\n", r->door_temp_diff_open);
-            printf("ID teplomeru u schodu:          x'%016lX'\n", r->door_temp_id_A);
-            printf("ID teplomeru v pracovne:        x'%016lX'\n", r->door_temp_id_B);
-        }
+        struct volt_response *r = response_data;
+        strcat(line, ts);
+        sprintf(t, " %.2lf %d", convert_voltage(r->voltage),
+                r->relay ? 14 : 12);
+        strcat(line, t);
+        printf("%s\n", line);
+        // printf("U = %.2lfV, I = %.1lfmA\n", convert_voltage(r->voltage),
+        // convert_current(r->current));
         break;
+    }
+    case CMD_TEMP:
+    {
+        if(transfer->actual_length != sizeof(struct temp_response))
+            goto bad_length; 
+
+        struct temp_response *r = response_data;
+        qsort(r->data, sizeof(r->data) / sizeof(r->data[0]),
+              sizeof(r->data[0]), comp_temp);
+
+        strcat(line, ts);
+
+        for (int i = 0; i < sizeof(r->data) / sizeof(r->data[0]); i++) {
+            if (!r->data[i].valid)
+                break;
+
+            sprintf(t, " %d", (int)convert_temperature(r->data[i].temperature));
+            strcat(line, t);
         }
-    } else {
-        fprintf(stderr, "Chybna delka odpovedi\n");
-        goto err;
+        printf("%s\n", line);
+
+        break;
+    }
+    case CMD_CFG_READ:
+    {
+        if(transfer->actual_length != sizeof(struct config))
+            goto bad_length; 
+
+        struct config *r = response_data;
+        int configured = r->signature == CONFIG_SIGNATURE;
+        printf("Konfigurovano:                  %s\n", configured ? "ANO" : "NE");
+        printf("Napeti vypnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_lo / 10.0 );
+        printf("Napeti zapnuti rele solaru:     %.1lfV\n", (double)r->solar_relay_decivolt_hi / 10.0 );
+        printf("Teplotni rozdil zavreni dveri:  %d°C\n", r->door_temp_diff_close);
+        printf("Teplotni rozdil otevreni dveri: %d°C\n", r->door_temp_diff_open);
+        printf("ID teplomeru u schodu:          x'%016lX'\n", r->door_temp_id_A);
+        printf("ID teplomeru v pracovne:        x'%016lX'\n", r->door_temp_id_B);
+    }
+    break;
     }
 
     return 0;
 
+bad_length:
+    fprintf(stderr, "Chybna delka odpovedi\n");
 err:
     return 1;
 }

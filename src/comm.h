@@ -1,3 +1,5 @@
+#pragma pack(push, 1)
+
 #define MAX_TEMP_COUNT 14
 
 enum command {
@@ -37,3 +39,4 @@ struct temp_response {
     struct temp_data data[MAX_TEMP_COUNT];
 };
     
+#pragma pack(pop)
