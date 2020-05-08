@@ -38,7 +38,8 @@ static uint8_t led_on;
 
 struct config config;
 struct config config_eeprom EEMEM;
-static uint8_t *config_write_tgt = (uint8_t *)&config;
+volatile static uint8_t config_updated;
+static uint8_t *config_write_tgt;
 
 #ifdef VOLT
 static struct volt_response volt_response;
@@ -375,13 +376,12 @@ static usbMsgLen_t handle_cfg_write_request(usbRequest_t *req)
         return 0;
 
     config_write_tgt = (void *)&config;
-    config.solar_relay_decivolt_lo = 0;
     return USB_NO_MSG;
 }
 
 uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
 {
-    if(config_write_tgt + len > (uint8_t *)(&config + 1))
+    if(!config_write_tgt || config_write_tgt + len > (uint8_t *)(&config + 1))
         return -1;
 
     memcpy(config_write_tgt, data, len);
@@ -389,9 +389,8 @@ uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
 
     if(config_write_tgt >= (uint8_t *)(&config + 1))
     {    
-        write_config();
-        read_config();
-        set_led_alert(TIME_350ms, 4);
+        config_write_tgt = 0;
+        config_updated = 1;
         return 1;
     }
     else
@@ -563,6 +562,19 @@ void __attribute__((noreturn)) main(void)
     set_led_alert(TIME_87ms, 3);
 
     for(;;){
+        if(config_updated)
+        {
+            set_led_alert(TIME_350ms, 4);
+            cli();
+            preempt_wait_us(10000);
+            write_config();
+            config_updated = 0;
+            sei();
+            cli();
+            read_config();
+            sei();
+        }
+
         switch(th_state)
         {
         case TS_SCAN:
