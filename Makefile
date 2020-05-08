@@ -6,7 +6,13 @@ CFLAGS = -Os -std=gnu99
 
 all: bin/firmware.dump bin/pudomat
 
-.PHONY : upload fuses clean setuid
+.PHONY : upload fuses clean setuid install
+
+install: bin/pudomat
+	sudo cp -f bin/pudomat /usr/local/bin/
+	sudo chown root /usr/local/bin/pudomat 
+	sudo chmod 4777 /usr/local/bin/pudomat
+
 upload: bin/firmware.elf
 	sudo avrdude -c dapa -p $(PART) -U flash:w:bin/firmware.elf
 

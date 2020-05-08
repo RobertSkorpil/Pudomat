@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <argp.h>
 #include "comm.h"
 
 static int transfer_fail = 0;
@@ -89,7 +90,15 @@ int comp_temp(const void *a, const void *b) {
     }
 }
 
+const char *argp_program_version = "Pudomat (kompilace " __TIMESTAMP__ ")";
+const char *argp_program_bug_address = "<robert@skorpil.net>";
+
+static struct argp argp = 
+{ .doc = "Pudomat - ovladaci program" };
+
 int main(int argc, char *argv[]) {
+//    argp_parse(&argp, argc, argv, 0, 0, 0);
+
     time_t current_time;
     time(&current_time);
 
@@ -120,6 +129,8 @@ int main(int argc, char *argv[]) {
     uint16_t transfer_buffer[256] = { 0 };
     int cmd = CMD_TEMP;
 
+    int test = 0;
+
     if (argc > 1)
     { 
         if(strcmp(argv[1], "volt") == 0)
@@ -128,11 +139,16 @@ int main(int argc, char *argv[]) {
             cmd = CMD_CFG_READ;
         else if(strcmp(argv[1], "wdc") == 0)
             cmd = CMD_CFG_WRITE;
+        else if(strcmp(argv[1], "test") == 0)
+            test = 1;
+        else if(strcmp(argv[1], "test2") == 0)
+            test = 2;
     }
 
     void *response_data = NULL;
     transfer_fail = 0;
-    for (int retry = 0; retry < 3; retry++) {
+    int retry;
+    for (retry = 0; retry < 5; retry++) {
         libusb_fill_control_setup((void *)transfer_buffer, 
                                    LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT,
                                    cmd,
@@ -151,8 +167,8 @@ int main(int argc, char *argv[]) {
         
         libusb_submit_transfer(transfer);
         libusb_handle_events(ctx);
-        usleep(50000);
 
+        usleep(20000 * retry);
         if (!transfer_fail) {
             if(cmd == CMD_CFG_WRITE)
                 break;
@@ -166,11 +182,12 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        usleep(100000);
-        if (retry == 1) {
+        if (retry == 3) {
             libusb_reset_device(dev_handle);
             usleep(100000);
         }
+        else
+            usleep(80000 * (retry + 1));
     }
     if (transfer_fail) {
         const char *msg = translate_error(transfer->status);
@@ -183,8 +200,14 @@ int main(int argc, char *argv[]) {
         goto err;
     }
 
-    char line[256] = {0};
-    char t[64];
+    char line[1024] = {0};
+    char t[1024];
+
+    if(test == 1)
+    {
+        printf("Retry count: %d\n", retry);
+        return 0;
+    }
 
     switch (cmd) {
     case CMD_VOLT:
@@ -213,11 +236,19 @@ int main(int argc, char *argv[]) {
 
         strcat(line, ts);
 
+        uint64_t last_id = -1;
         for (int i = 0; i < sizeof(r->data) / sizeof(r->data[0]); i++) {
             if (!r->data[i].valid)
-                break;
+                continue;
+            if(r->data[i].id == last_id)
+                continue;
+            last_id = r->data[i].id;
 
-            sprintf(t, " %d", (int)convert_temperature(r->data[i].temperature));
+            if(!test)
+                sprintf(t, " %d", (int)convert_temperature(r->data[i].temperature));
+            else if(test == 2)
+                sprintf(t, " %0.2lf°C[age=%d,id=x'%016lX']", convert_temperature(r->data[i].temperature), r->data[i].age, r->data[i].id);
+
             strcat(line, t);
         }
         printf("%s\n", line);

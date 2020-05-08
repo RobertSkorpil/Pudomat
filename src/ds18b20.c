@@ -12,7 +12,6 @@
 */
 
 #include <stddef.h>
-#include <util/delay.h>
 #include <ds18b20.h>
 #include <onewire.h>
 

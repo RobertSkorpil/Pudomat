@@ -61,7 +61,6 @@ static void write_config()
     eeprom_write_block(&config, &config_eeprom, sizeof(config));
 }
 
-    
 static void green_on()
 {
     BIT_ON(PORTB, PINB1);
@@ -257,38 +256,81 @@ volatile uint8_t * const onewire_direction = &DDRB;
 volatile uint8_t * const onewire_portin = &PINB;
 const uint8_t onewire_mask = (1 << PINB0);
 
+void preempt_wait_us(uint16_t us)     //assumption: interrupts disabled
+{
+    uint16_t cycles = us + (us / 2);  
+    TCNT1 = 0;                        //reset timer1 counter
+    OCR1A = cycles;                   //set timer1 TOP value
+    TIFR1 |= (1 << OCF1A);            //reset OCF1A flag (sic)
+    TCCR1B |= ((1<<WGM12)|(1<<CS11)); //timer1 clk/8 prescaler, CTC mode
+
+    sei();
+    while(!(TIFR1 & (1 << OCF1A)));    //wait for the counter to hit TOP with interrupts enabled
+    cli();
+
+    TCCR1B = 0;                       //timer1 disable
+}
 
 static void scan_temp()
 {
     green_on();
-    ds18b20search(&temp_rom_count, temp_rom, (uint16_t)sizeof(temp_rom));
+    static uint8_t rom[MAX_TEMP_COUNT * 8];
+#define SEARCH_TRYS 3    
+    for(uint8_t retry = 0; retry < SEARCH_TRYS; retry++)
+    {
+        cli();
+        uint8_t count;
+        if(ds18b20search(&count, rom, (uint16_t)sizeof(temp_rom)) == DS18B20_ERROR_OK)
+        {
+            if(count >= temp_rom_count || retry == (SEARCH_TRYS - 1))
+            {
+                temp_rom_count = count;
+                memcpy(temp_rom,  rom, sizeof(temp_rom));
+                break;
+            }
+        }
+        preempt_wait_us(5000);
+        sei();
+    }
+    sei();
     green_off();
 }
 
 static void start_temp_read()
 {
     for(uint8_t i = 0; i < temp_rom_count; i++)
+    {
+        cli();
         ds18b20convert(temp_rom + i * 8);
+        sei();
+    }
 }
 
 static void finish_temp_read()
 {
-    memset(&temp_response, 0, sizeof(temp_response));
     for(uint8_t i = 0; i < MAX_TEMP_COUNT; i++)
     {
-        uint16_t t;
 
-        if(i >= temp_rom_count || ds18b20read(temp_rom + i * 8, &t) != 0)
-        {
-            if(temp_response.data[i].age != 255)
-                temp_response.data[i].age += 1;
+        if(i >= temp_rom_count)
             temp_response.data[i].valid = 0;
-            return;
+        else
+        {
+            cli();
+            uint16_t t;
+            if(ds18b20read(temp_rom + i * 8, &t) != 0)
+            {
+                if(temp_response.data[i].age != 255)
+                    temp_response.data[i].age += 1;
+            }
+            else
+            {
+                temp_response.data[i].age = 0;
+                temp_response.data[i].temperature = t;
+            }
+            temp_response.data[i].id = *(uint64_t *) (temp_rom + i * 8);
+            temp_response.data[i].valid = 1;
+            sei();
         }
-        temp_response.data[i].id = *(uint64_t *) (temp_rom + i * 8);
-        temp_response.data[i].temperature = t;
-        temp_response.data[i].age = 0;
-        temp_response.data[i].valid = 1;
     }
 }
 
@@ -386,25 +428,31 @@ static void handle_leds()
         green_off();
 }
 
+volatile static enum { TS_SCAN, TS_SCAN_DONE, TS_START, TS_START_DONE, TS_FINISH, TS_FINISH_DONE} th_state = TS_SCAN;
 static void handle_thermo()
 {
-    static enum { TS_SCAN, TS_START, TS_FINISH } th_state = TS_SCAN;
-
+    static uint8_t cycle = 0;
     if(is_time(TIME_1400ms, 0))
     {
         switch(th_state)
         {
-        case TS_SCAN:
-            scan_temp();
+        case TS_SCAN_DONE:
             th_state = TS_START;
             break;
-        case TS_START:
-            start_temp_read();
+        case TS_START_DONE:
             th_state = TS_FINISH;
             break;
-        case TS_FINISH:
-            finish_temp_read();
-            th_state = TS_SCAN;
+        case TS_FINISH_DONE:
+            if(cycle == 0)
+            {
+                th_state = TS_SCAN;
+                cycle = 0;
+            }
+            else
+            {
+                th_state = TS_START;
+                ++cycle;
+            }
             break;
         }
     }
@@ -471,7 +519,7 @@ static void init()
     TWBR = 4;                         // TWI Bit Rate
     //TWI Bit Rate = 12MHz / (16 + 2*TWBR*TWIPrescale) =
     //               12MHz / (16 + 2*4*16) = 83kHz
-    TCCR2B |= ((1<<CS21)|(1<<CS20));  // timer2 clk/32 prescaler
+    TCCR2B |= (1<<CS22);              // timer2 clk/64 prescaler
     BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
 }
 
@@ -487,13 +535,29 @@ void __attribute__((noreturn)) main(void)
     usbInit();
     usbDeviceDisconnect();
     _delay_ms(250);
-    usbDeviceConnect(); 
+    usbDeviceConnect();
 
     sei();
     green_off();
 
     set_led_alert(TIME_87ms, 3);
 
-    for(;;);
+    for(;;){
+        switch(th_state)
+        {
+        case TS_SCAN:
+            scan_temp();
+            th_state = TS_SCAN_DONE;
+            break;
+        case TS_START:
+            start_temp_read();
+            th_state = TS_START_DONE;
+            break;
+        case TS_FINISH:
+            finish_temp_read();
+            th_state = TS_FINISH_DONE;
+            break;
+        }
+    }
 }
 

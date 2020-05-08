@@ -17,6 +17,8 @@
 #include <inttypes.h>
 #include <onewire.h>
 
+void preempt_wait_us(uint16_t us);
+
 //! Initializes 1wire bus before transmission
 uint8_t onewireInit()
 {
@@ -31,20 +33,20 @@ uint8_t onewireInit()
 	*onewire_direction |= onewire_mask; //Set port to output
 	*onewire_port &= ~onewire_mask; //Write 0 to output
 
-	_delay_us( 600 );
+	preempt_wait_us( 600 );
 
 	*onewire_direction &= ~onewire_mask; //Set port to input
 
-	_delay_us( 70 );
+	preempt_wait_us( 70 );
 
 	response = *onewire_portin & onewire_mask; //Read input
 
-	_delay_us( 200 );
+	preempt_wait_us( 200 );
 
 	*onewire_port |= onewire_mask; //Write 1 to output
 	*onewire_direction |= onewire_mask; //Set port to output
 
-	_delay_us( 600 );
+	preempt_wait_us( 600 );
 
 	SREG = sreg; //Restore status register
 
@@ -65,11 +67,11 @@ uint8_t onewireWriteBit(uint8_t bit)
 	*onewire_port &= ~onewire_mask; //Write 0 to output
 
 	if ( bit != 0 ) _delay_us( 8 );
-	else _delay_us( 80 );
+	else preempt_wait_us( 80 );
 
 	*onewire_port |= onewire_mask;
 
-	if ( bit != 0 ) _delay_us( 80 );
+	if ( bit != 0 ) preempt_wait_us( 80 );
 	else _delay_us( 2 );
 
 	SREG = sreg;
@@ -110,7 +112,7 @@ uint8_t onewireReadBit()
 	*onewire_direction &= ~onewire_mask; //Set port to input
 	_delay_us( 5 );
 	bit = ( ( *onewire_portin & onewire_mask ) != 0 ); //Read input
-	_delay_us( 60 );
+	preempt_wait_us( 60 );
 	SREG = sreg;
 
 	return bit;
