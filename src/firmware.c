@@ -317,7 +317,6 @@ static void finish_temp_read()
 {
     for(uint8_t i = 0; i < MAX_TEMP_COUNT; i++)
     {
-
         if(i >= temp_rom_count)
             temp_response.data[i].valid = 0;
         else
@@ -326,6 +325,7 @@ static void finish_temp_read()
             uint16_t t;
             if(ds18b20read(temp_rom + i * 8, &t) != 0)
             {
+                ++debug_data.temp_read_errors;
                 if(temp_response.data[i].age != 255)
                     temp_response.data[i].age += 1;
             }
