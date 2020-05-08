@@ -443,7 +443,7 @@ static void handle_thermo()
             th_state = TS_FINISH;
             break;
         case TS_FINISH_DONE:
-            if(cycle == 0)
+            if(cycle == 10)
             {
                 th_state = TS_SCAN;
                 cycle = 0;
