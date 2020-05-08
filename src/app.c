@@ -397,7 +397,7 @@ err:
 
 int main(int argc, char *argv[]) {
     struct arguments arguments = { 0 };
-    arguments.command = CMD_VOLT;
+    arguments.command = CMD_TEMP;
 
     argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
