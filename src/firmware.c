@@ -287,6 +287,7 @@ static void scan_temp()
         {
             if(count >= temp_rom_count || retry == (SEARCH_TRYS - 1))
             {
+                sei();
                 temp_rom_count = count;
                 memcpy(temp_rom,  rom, sizeof(temp_rom));
                 break;
@@ -300,7 +301,6 @@ static void scan_temp()
         preempt_wait_us(5000);
         sei();
     }
-    sei();
     green_off();
 }
 
