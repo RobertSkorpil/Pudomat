@@ -53,24 +53,6 @@ double convert_voltage(int t) { return (double)(t >> 3) * 0.004; }
 
 double convert_current(int t) { return (double)(t >> 3) * 0.004 * 100; }
 
-void prepare_request(struct libusb_transfer *transfer, char *buffer,
-                      size_t buf_size, libusb_device_handle *dev_handle,
-                      int cmd) {
-}
-
-void prepare_response(struct libusb_transfer *transfer, char *buffer,
-                               size_t buf_size,
-                               libusb_device_handle *dev_handle) {
-    libusb_fill_control_transfer(transfer, dev_handle, buffer, transfer_cb,
-                                 NULL, 500);
-    struct libusb_control_setup *ctrl =
-        libusb_control_transfer_get_setup(transfer);
-    ctrl->bmRequestType = LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR |
-                          LIBUSB_ENDPOINT_IN;
-    ctrl->wLength = 256;
-    transfer->length = buf_size;
-}
-
 int comp_temp(const void *a, const void *b) {
     const struct temp_data *t1 = a, *t2 = b;
     if (!t1->valid) {
@@ -95,6 +77,24 @@ const char *argp_program_bug_address = "<robert@skorpil.net>";
 
 static struct argp argp = 
 { .doc = "Pudomat - ovladaci program" };
+
+static inline uint16_t get_response_size(enum command command)
+{
+    switch(command)
+    {
+    case CMD_DBG_READ:
+        return sizeof(struct debug_data);
+    case CMD_VOLT:
+        return sizeof(struct volt_response);
+    case CMD_TEMP:
+        return sizeof(struct temp_response);
+    case CMD_CFG_READ:
+    case CMD_CFG_WRITE:
+        return sizeof(struct config);
+    default:
+        abort();
+    }        
+}
 
 int main(int argc, char *argv[]) {
 //    argp_parse(&argp, argc, argv, 0, 0, 0);
@@ -152,16 +152,16 @@ int main(int argc, char *argv[]) {
     int retry;
     for (retry = 0; retry < 5; retry++) {
         libusb_fill_control_setup((void *)transfer_buffer, 
-                                   LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT,
+                                   LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR | (cmd == CMD_CFG_WRITE ? LIBUSB_ENDPOINT_OUT : LIBUSB_ENDPOINT_IN),
                                    cmd,
                                    0,
                                    0,
-                                   (cmd == CMD_CFG_WRITE) ? sizeof(struct config) : 0);
+                                   get_response_size(cmd));
         if(cmd == CMD_CFG_WRITE)
         {
             struct config *config = (void *)(transfer_buffer + 4);
             config->solar_relay_decivolt_lo = 130;
-            config->solar_relay_decivolt_hi = 145;
+            config->solar_relay_decivolt_hi = 146;
             config->signature = CONFIG_SIGNATURE;
         }
         libusb_fill_control_transfer(transfer, dev_handle, (void *)transfer_buffer, transfer_cb,
@@ -172,13 +172,8 @@ int main(int argc, char *argv[]) {
 
         usleep(60000);
         if (!transfer_fail) {
-            if(cmd == CMD_CFG_WRITE)
-                break;
-            prepare_response(transfer, (void *)transfer_buffer,
-                                      sizeof(transfer_buffer), dev_handle);
-            libusb_submit_transfer(transfer);
-            libusb_handle_events(ctx);
-            if (!transfer_fail) {
+            if(transfer->actual_length == get_response_size(cmd))
+            {
                 response_data = libusb_control_transfer_get_data(transfer);
                 break;
             }
