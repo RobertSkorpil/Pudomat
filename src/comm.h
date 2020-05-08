@@ -44,9 +44,11 @@ struct debug_data {
     uint32_t usb_polls;
     uint32_t usb_reqs;
     uint32_t usb_req_errors;
+    uint32_t temp_scans;
     uint32_t temp_scan_errors;
     uint32_t temp_scan_warns;
     uint32_t temp_read_errors;
+    uint32_t temp_reads;
 };
     
 #pragma pack(pop)

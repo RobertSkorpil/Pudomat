@@ -277,6 +277,7 @@ static void scan_temp()
 {
     green_on();
     static uint8_t rom[MAX_TEMP_COUNT * 8];
+    ++debug_data.temp_scans;
 #define SEARCH_TRYS 3    
     for(uint8_t retry = 0; retry < SEARCH_TRYS; retry++)
     {
@@ -323,6 +324,7 @@ static void finish_temp_read()
         {
             cli();
             uint16_t t;
+            ++debug_data.temp_reads;
             if(ds18b20read(temp_rom + i * 8, &t) != 0)
             {
                 ++debug_data.temp_read_errors;

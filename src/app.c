@@ -281,8 +281,10 @@ int main(int argc, char *argv[]) {
         printf("Pocet volani usbPoll():                         %d\n", r->usb_polls);
         printf("Pocet USB prikazu:                              %d\n", r->usb_reqs);
         printf("Pocet chybnych USB prikazu:                     %d\n", r->usb_req_errors);
+        printf("Pocet hledani teplomeru:                        %d\n", r->temp_scans);
         printf("Pocet chyb pri hledani teplomeru:               %d\n", r->temp_scan_errors);
         printf("Pocet opakovanych pokusu pri hledani teplomeru: %d\n", r->temp_scan_warns);
+        printf("Pocet cteni teploty:                            %d\n", r->temp_reads);
         printf("Pocet chyb pri cteni teploty:                   %d\n", r->temp_read_errors);
     }
     break;
