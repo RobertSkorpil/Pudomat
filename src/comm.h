@@ -3,6 +3,7 @@
 #define MAX_TEMP_COUNT 14
 
 enum command {
+    CMD_DBG_READ = 1,
     CMD_VOLT = 2,
     CMD_TEMP = 3,
     CMD_CFG_READ = 4,
@@ -37,6 +38,15 @@ struct temp_data {
 
 struct temp_response {
     struct temp_data data[MAX_TEMP_COUNT];
+};
+
+struct debug_data {
+    uint32_t usb_polls;
+    uint32_t usb_reqs;
+    uint32_t usb_req_errors;
+    uint32_t temp_scan_errors;
+    uint32_t temp_scan_warns;
+    uint32_t temp_read_errors;
 };
     
 #pragma pack(pop)

@@ -62,7 +62,7 @@ void prepare_response(struct libusb_transfer *transfer, char *buffer,
                                size_t buf_size,
                                libusb_device_handle *dev_handle) {
     libusb_fill_control_transfer(transfer, dev_handle, buffer, transfer_cb,
-                                 NULL, 50);
+                                 NULL, 500);
     struct libusb_control_setup *ctrl =
         libusb_control_transfer_get_setup(transfer);
     ctrl->bmRequestType = LIBUSB_RECIPIENT_DEVICE | LIBUSB_REQUEST_TYPE_VENDOR |
@@ -139,6 +139,8 @@ int main(int argc, char *argv[]) {
             cmd = CMD_CFG_READ;
         else if(strcmp(argv[1], "wdc") == 0)
             cmd = CMD_CFG_WRITE;
+        else if(strcmp(argv[1], "debug") == 0)
+            cmd = CMD_DBG_READ;
         else if(strcmp(argv[1], "test") == 0)
             test = 1;
         else if(strcmp(argv[1], "test2") == 0)
@@ -168,7 +170,7 @@ int main(int argc, char *argv[]) {
         libusb_submit_transfer(transfer);
         libusb_handle_events(ctx);
 
-        usleep(20000 * retry);
+        usleep(60000);
         if (!transfer_fail) {
             if(cmd == CMD_CFG_WRITE)
                 break;
@@ -269,6 +271,19 @@ int main(int argc, char *argv[]) {
         printf("Teplotni rozdil otevreni dveri: %d°C\n", r->door_temp_diff_open);
         printf("ID teplomeru u schodu:          x'%016lX'\n", r->door_temp_id_A);
         printf("ID teplomeru v pracovne:        x'%016lX'\n", r->door_temp_id_B);
+    }
+    case CMD_DBG_READ:
+    {
+        if(transfer->actual_length != sizeof(struct debug_data))
+            goto bad_length; 
+
+        struct debug_data *r = response_data;
+        printf("Pocet volani usbPoll():                         %d\n", r->usb_polls);
+        printf("Pocet USB prikazu:                              %d\n", r->usb_reqs);
+        printf("Pocet chybnych USB prikazu:                     %d\n", r->usb_req_errors);
+        printf("Pocet chyb pri hledani teplomeru:               %d\n", r->temp_scan_errors);
+        printf("Pocet opakovanych pokusu pri hledani teplomeru: %d\n", r->temp_scan_warns);
+        printf("Pocet chyb pri cteni teploty:                   %d\n", r->temp_read_errors);
     }
     break;
     }

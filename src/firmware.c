@@ -46,6 +46,8 @@ static struct volt_response volt_response;
 
 static struct temp_response temp_response;
 
+static struct debug_data debug_data;
+
 static void read_config()
 {
     eeprom_read_block(&config, &config_eeprom, sizeof(config));
@@ -261,7 +263,7 @@ void preempt_wait_us(uint16_t us)     //assumption: interrupts disabled
     uint16_t cycles = us + (us / 2);  
     TCNT1 = 0;                        //reset timer1 counter
     OCR1A = cycles;                   //set timer1 TOP value
-    TIFR1 |= (1 << OCF1A);            //reset OCF1A flag (sic)
+    BIT_ON(TIFR1, OCF1A);             //reset OCF1A flag (sic)
     TCCR1B |= ((1<<WGM12)|(1<<CS11)); //timer1 clk/8 prescaler, CTC mode
 
     sei();
@@ -288,7 +290,12 @@ static void scan_temp()
                 memcpy(temp_rom,  rom, sizeof(temp_rom));
                 break;
             }
+            else
+                ++debug_data.temp_scan_warns;
         }
+        else
+            ++debug_data.temp_scan_errors;
+
         preempt_wait_us(5000);
         sei();
     }
@@ -332,6 +339,12 @@ static void finish_temp_read()
             sei();
         }
     }
+}
+
+static usbMsgLen_t handle_dbg_read_request()
+{
+    usbMsgPtr = (usbMsgPtr_t)&debug_data;
+    return sizeof(debug_data);
 }
 
 static usbMsgLen_t handle_temperature_request()
@@ -385,9 +398,12 @@ uint8_t usbFunctionWrite(uint8_t *data, uint8_t len)
 
 usbMsgLen_t usbFunctionSetup(unsigned char data[8])
 {
+    ++debug_data.usb_reqs;
     usbRequest_t *req = (void *)data;
     switch(req->bRequest)
     {
+    case CMD_DBG_READ:
+        return handle_dbg_read_request();
 #ifdef VOLT    
     case CMD_VOLT:
         return handle_voltmeter_request();
@@ -399,6 +415,7 @@ usbMsgLen_t usbFunctionSetup(unsigned char data[8])
     case CMD_CFG_WRITE:
         return handle_cfg_write_request(req);
     }
+    ++debug_data.usb_req_errors;
     return 0;
 }
 
@@ -506,6 +523,7 @@ ISR(TIMER0_OVF_vect)
 ISR(TIMER2_OVF_vect)
 {
     usbPoll();
+    ++debug_data.usb_polls;
 }
 
 static void init()
@@ -519,7 +537,7 @@ static void init()
     TWBR = 4;                         // TWI Bit Rate
     //TWI Bit Rate = 12MHz / (16 + 2*TWBR*TWIPrescale) =
     //               12MHz / (16 + 2*4*16) = 83kHz
-    TCCR2B |= (1<<CS22);              // timer2 clk/64 prescaler
+    BIT_ON(TCCR2B, CS22);             // timer2 clk/64 prescaler
     BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
 }
 
