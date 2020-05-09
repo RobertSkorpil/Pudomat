@@ -84,7 +84,7 @@ static struct argp_option options[] = {
     { "temperature", 't', 0, 0, "Vypsani teplot (vychozi)" },
     { "voltage", 'u', 0, 0, "Vypsani voltmetru" },
     { "config-read", 'r', 0, 0, "Vypsani konfigurace" },
-    { "config-write", 'w', "\"klic=hodnota[,klic=hodnota,...]\"", 0, "Zmen konfiguracni parametr <klic> na <hodnota>. Seznam klicu je dostupny ve vystupu config-read." },
+    { "config-write", 'w', "klic=hodnota[,klic=hodnota,...]", 0, "Zmen konfiguracni parametr <klic> na <hodnota>. Seznam klicu je dostupny ve vystupu config-read." },
     { "debug", 'd', 0, 0, "Vypsani ladicich dat" },
     { 0 }
 };
@@ -128,7 +128,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
 }
 
 static struct argp argp = 
-{ .options = options, .parser = parse_opt, .doc = "Pudomat - ovladaci program\n\n Priklad nastaveni napeti vypnuti rele na 12.0V a sepnuti na 13.5:\n pudomat -w \"svlo=120,svhi=135\" " };
+{ .options = options, .parser = parse_opt, .doc = "Pudomat - ovladaci program\n\n Priklad nastaveni napeti vypnuti rele na 12.0V a sepnuti na 13.5V:\n pudomat -w svlo=120,svhi=135 " };
 
 static inline uint16_t get_response_size(enum command command)
 {
