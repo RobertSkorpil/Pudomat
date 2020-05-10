@@ -2,6 +2,7 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
+#include <avr/wdt.h>
 #include <util/delay.h>
 #include <util/twi.h>
 #include "ds18b20.h"
@@ -542,8 +543,19 @@ static void init()
     BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
 }
 
+void init_wdt_disable(void) \
+  __attribute__((naked)) \
+  __attribute__((section(".init3")));
+void init_wdt_disable(void)
+{
+  MCUSR = 0;
+  wdt_disable();
+}
+
 void __attribute__((noreturn)) main(void)
 {
+    wdt_disable();
+
     cli();
     init();
     relay_off(); 
@@ -560,6 +572,8 @@ void __attribute__((noreturn)) main(void)
     green_off();
 
     set_led_alert(TIME_87ms, 3);
+
+    wdt_enable(WDTO_8S);
 
     for(;;){
         if(config_updated)
@@ -587,6 +601,7 @@ void __attribute__((noreturn)) main(void)
             break;
         case TS_FINISH:
             finish_temp_read();
+            wdt_reset();
             th_state = TS_FINISH_DONE;
             break;
         }

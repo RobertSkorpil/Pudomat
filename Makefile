@@ -1,5 +1,5 @@
 PART = m168
-AVRFLAGS = -mmcu=atmega168 -g -Isrc/
+AVRFLAGS = -mmcu=atmega168 -fshort-enums -fno-inline -g -Isrc/
 AVRCFLAGS = $(AVRFLAGS) -Os -std=gnu99 -mcall-prologues -DF_CPU=12000000
 AVRSFLAGS = $(AVRFLAGS) -x assembler-with-cpp
 CFLAGS = -Os -std=gnu99
