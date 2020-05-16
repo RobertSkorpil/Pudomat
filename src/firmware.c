@@ -50,8 +50,9 @@ static struct debug_data debug_data;
 
 volatile static enum door_action door_action;
 volatile static int8_t door_countdown;
-#define DOOR_COUNTDOWN 100
-#define DOOR_DOUBLE_PUSH_TIME 5
+#define DOOR_COUNTDOWN 85
+#define DOOR_IGNORE_TIME 1
+#define DOOR_DOUBLE_PUSH_TIME 7
 
 static void read_config()
 {
@@ -256,7 +257,7 @@ static uint8_t temp_rom[MAX_TEMP_COUNT * 8] __attribute__((section(".bss")));
 
 volatile uint8_t * const onewire_port = &PORTB;
 volatile uint8_t * const onewire_direction = &DDRB;
-volatile uint8_t * const onewire_portin = &PORTB;
+volatile uint8_t * const onewire_portin = &PINB;
 const uint8_t onewire_mask = (1 << PORTB0);
 
 void preempt_wait_us(uint16_t us)     //assumption: interrupts disabled
@@ -526,22 +527,25 @@ static void handle_volt()
 static void handle_door()
 {
     if(is_time(TIME_350ms, 0))
-    {
+    {        
         if(EIFR & (1<<INTF1)) //button pushed?
         {
             BIT_ON(EIFR, INTF1); //clear interrupt request flag (sic)
-            switch(door_action)
+            if(door_countdown <= DOOR_COUNTDOWN - DOOR_IGNORE_TIME)
             {
-            case DA_FORCE_OPEN:
-                if(door_countdown >= (DOOR_COUNTDOWN - DOOR_DOUBLE_PUSH_TIME))
-                    door_action = DA_FORCE_CLOSE;
+                switch(door_action)
+                {
+                case DA_FORCE_OPEN:
+                    if(door_countdown >= (DOOR_COUNTDOWN - DOOR_DOUBLE_PUSH_TIME))
+                        door_action = DA_FORCE_CLOSE;
 
-                door_countdown = DOOR_COUNTDOWN;
-                break;
-            default:
-                door_action = DA_FORCE_OPEN;
-                door_countdown = DOOR_COUNTDOWN;
-                break;       
+                    door_countdown = DOOR_COUNTDOWN;
+                    break;
+                default:
+                    door_action = DA_FORCE_OPEN;
+                    door_countdown = DOOR_COUNTDOWN;
+                    break;       
+                }
             }
         }    
         if(door_countdown)
@@ -561,7 +565,7 @@ ISR(TIMER0_OVF_vect)
 
   handle_volt();
 
-  //handle_door();
+  handle_door();
 
   t0ov_counter++;
 }
@@ -575,24 +579,25 @@ ISR(TIMER2_OVF_vect)
 
 static void door_open()
 {
-    BIT_ON(PORTC, PORTC0);
+    BIT_OFF(PORTC, PORTC1);
+    BIT_ON(PORTC, PORTC2);
 }
 
 static void door_close()
 {
+    BIT_OFF(PORTC, PORTC2);
     BIT_ON(PORTC, PORTC1);
 }
 
 static void door_off()
 {
-    PORTC &= ~((1<<PORTC0)|(1<<PORTC1));
+    PORTC &= ~((1<<PORTC1)|(1<<PORTC2));
 }
 
 static void init()
 {
     BIT_OFF(MCUCR, PUD);              // enable pull-ups
     BIT_ON(DDRB, PORTB1);             // enable LED
-    BIT_ON(DDRC, PORTC0);             // enable relay
     TCCR0B |= ((1<<CS02)|(1<<CS00));  // timer0 clk/1024 prescaler
     BIT_ON(TIMSK0, TOIE0);            // timer0 overflow interrupt
     BIT_ON(TWSR, TWPS1);              // 1/16 TWI prescaler
@@ -602,9 +607,9 @@ static void init()
     BIT_ON(TCCR2B, CS22);             // timer2 clk/64 prescaler
     BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
 
-//    EICRA |= ((1<<ISC11)|(1<<ISC10)); // interrupt on rising edge INT1 (door button)
+    EICRA |= ((1<<ISC11)|(1<<ISC10)); // interrupt on rising edge INT1 (door button)
 
-//    DDRC |= ((1<<PORTC0)|(1<<PORTC1)); // PC0, PC1 for output (door control)
+    DDRC |= ((1<<PORTC0)|(1<<PORTC1)|(1<<PORTC2)); // PC0, PC1, PC2 for output (door & solar control)
 }
 
 void init_wdt_disable(void) \
@@ -670,7 +675,7 @@ void __attribute__((noreturn)) main(void)
             break;
         }
 
-        /*
+        
         switch(door_action)
         {
         case DA_NO_ACTION:
@@ -684,7 +689,7 @@ void __attribute__((noreturn)) main(void)
         case DA_FORCE_CLOSE:
             door_close();
             break;
-        }*/
+        }
     }
 }
 
