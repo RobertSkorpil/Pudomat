@@ -395,6 +395,25 @@ err:
     return rc;
 }
 
+const char *translate_door(int8_t door_action)
+{
+    switch(door_action)
+    {
+    case DA_NO_ACTION:
+        return "Klid";
+    case DA_OPEN:
+        return "Otevrit kvuli teplote";            
+    case DA_CLOSE:
+        return "Zavrit kvuli teplote";            
+    case DA_FORCE_OPEN:
+        return "Otevrit kvuli tlacitku";            
+    case DA_FORCE_CLOSE:
+        return "Zavrit kvuli tlacitku";            
+    default:
+        return "Neznamy!";
+    }
+}
+
 int main(int argc, char *argv[]) {
     struct arguments arguments = { 0 };
     arguments.command = CMD_TEMP;
@@ -464,7 +483,7 @@ int main(int argc, char *argv[]) {
             if(!arguments.verbose)
                 sprintf(t, " %d", (int)convert_temperature(r->data[i].temperature));
             else
-                sprintf(t, " %0.2lf°C[age=%d,id=x'%016lX']", convert_temperature(r->data[i].temperature), r->data[i].age, r->data[i].id);
+                sprintf(t, " %0.2lf°C[raw=%04X,age=%d,id=x'%016lX']", convert_temperature(r->data[i].temperature), r->data[i].temperature, r->data[i].age, r->data[i].id);
 
             strcat(line, t);
         }
@@ -495,6 +514,7 @@ int main(int argc, char *argv[]) {
         printf("Pocet opakovanych pokusu pri hledani teplomeru: %d\n", r->temp_scan_warns);
         printf("Pocet cteni teploty:                            %d\n", r->temp_reads);
         printf("Pocet chyb pri cteni teploty:                   %d\n", r->temp_read_errors);
+        printf("Stav dveri:                                     %s(%d)\n", translate_door(r->door_action), r->door_countdown);
     }
     break;
     }

@@ -42,13 +42,16 @@ struct config config_eeprom EEMEM;
 volatile static uint8_t config_updated;
 static uint8_t *config_write_tgt;
 
-#ifdef VOLT
 static struct volt_response volt_response;
-#endif
 
 static struct temp_response temp_response;
 
 static struct debug_data debug_data;
+
+volatile static enum door_action door_action;
+volatile static int8_t door_countdown;
+#define DOOR_COUNTDOWN 100
+#define DOOR_DOUBLE_PUSH_TIME 5
 
 static void read_config()
 {
@@ -67,25 +70,25 @@ static void write_config()
 
 static void green_on()
 {
-    BIT_ON(PORTB, PINB1);
+    BIT_ON(PORTB, PORTB1);
     led_on = 1;
 }
 
 static void green_off()
 {
-    BIT_OFF(PORTB, PINB1);
+    BIT_OFF(PORTB, PORTB1);
     led_on = 0;
 }
 
 static void relay_on()
 {
-    BIT_ON(PORTC, PINC0);
+    BIT_ON(PORTC, PORTC0);
     volt_response.relay = 1;
 }
 
 static void relay_off()
 {
-    BIT_OFF(PORTC, PINC0);
+    BIT_OFF(PORTC, PORTC0);
     volt_response.relay = 0;
 }
 
@@ -95,7 +98,6 @@ static void set_led_alert(uint16_t period, uint16_t count)
     led_alert = count;
 }
 
-#ifdef VOLT
 static volatile struct 
 {
     uint8_t address;
@@ -148,9 +150,7 @@ static void twi_op(uint8_t address, uint8_t reg, uint16_t *val, uint8_t op)
     BIT_ON(twcr, TWSTA); // start transmision;
     TWCR = twcr;
 }
-#endif
 
-#ifdef VOLT
 ISR(TWI_vect)
 {
     uint8_t twcr = 0;
@@ -250,15 +250,14 @@ ISR(TWI_vect)
 unexpected:
     BIT_OFF(TWCR, TWEN); // disable TWI bus
 }
-#endif
 
 static uint8_t temp_rom_count;
 static uint8_t temp_rom[MAX_TEMP_COUNT * 8] __attribute__((section(".bss")));
 
 volatile uint8_t * const onewire_port = &PORTB;
 volatile uint8_t * const onewire_direction = &DDRB;
-volatile uint8_t * const onewire_portin = &PINB;
-const uint8_t onewire_mask = (1 << PINB0);
+volatile uint8_t * const onewire_portin = &PORTB;
+const uint8_t onewire_mask = (1 << PORTB0);
 
 void preempt_wait_us(uint16_t us)     //assumption: interrupts disabled
 {
@@ -318,6 +317,9 @@ static void start_temp_read()
 
 static void finish_temp_read()
 {
+    int8_t temp_a = -128;
+    int8_t temp_b = -128;
+
     for(uint8_t i = 0; i < MAX_TEMP_COUNT; i++)
     {
         if(i >= temp_rom_count)
@@ -327,6 +329,10 @@ static void finish_temp_read()
             cli();
             uint16_t t;
             ++debug_data.temp_reads;
+
+            temp_response.data[i].id = *(uint64_t *) (temp_rom + i * 8);
+            temp_response.data[i].valid = 1;
+
             if(ds18b20read(temp_rom + i * 8, &t) != 0)
             {
                 ++debug_data.temp_read_errors;
@@ -337,16 +343,29 @@ static void finish_temp_read()
             {
                 temp_response.data[i].age = 0;
                 temp_response.data[i].temperature = t;
+                if(temp_response.data[i].id == config.door_temp_id_A)
+                    temp_a = (int16_t)t / 16;
+                else if(temp_response.data[i].id == config.door_temp_id_B)
+                    temp_b = (int16_t)t / 16;
             }
-            temp_response.data[i].id = *(uint64_t *) (temp_rom + i * 8);
-            temp_response.data[i].valid = 1;
             sei();
         }
+    }
+
+    if(door_action != DA_FORCE_CLOSE && door_action != DA_FORCE_OPEN)
+    if(temp_a != -128 && temp_b != -128)
+    {
+        if(temp_a - temp_b > config.door_temp_diff_close)
+            door_action = DA_CLOSE;
+        else if(temp_a - temp_b < config.door_temp_diff_open)
+            door_action = DA_OPEN;
     }
 }
 
 static usbMsgLen_t handle_dbg_read_request()
 {
+    debug_data.door_action = door_action;
+    debug_data.door_countdown = door_countdown;
     usbMsgPtr = (usbMsgPtr_t)&debug_data;
     return sizeof(debug_data);
 }
@@ -357,13 +376,11 @@ static usbMsgLen_t handle_temperature_request()
     return sizeof(temp_response);
 }
 
-#ifdef VOLT
 static usbMsgLen_t handle_voltmeter_request()
 {
     usbMsgPtr = (usbMsgPtr_t)&volt_response;
     return sizeof(volt_response);
 }
-#endif
 
 static usbMsgLen_t handle_cfg_read_request()
 {
@@ -406,10 +423,8 @@ usbMsgLen_t usbFunctionSetup(unsigned char data[8])
     {
     case CMD_DBG_READ:
         return handle_dbg_read_request();
-#ifdef VOLT    
     case CMD_VOLT:
         return handle_voltmeter_request();
-#endif    
     case CMD_TEMP:
         return handle_temperature_request();
     case CMD_CFG_READ:
@@ -477,7 +492,6 @@ static void handle_thermo()
     }
 }
 
-#ifdef VOLT
 static void handle_volt()
 {
     static enum { VS_CONFIG, VS_CURRENT, VS_VOLT, VS_ACTION } volt_state = VS_CONFIG;
@@ -508,16 +522,46 @@ static void handle_volt()
         }
     }
 }
-#endif
+
+static void handle_door()
+{
+    if(is_time(TIME_350ms, 0))
+    {
+        if(EIFR & (1<<INTF1)) //button pushed?
+        {
+            BIT_ON(EIFR, INTF1); //clear interrupt request flag (sic)
+            switch(door_action)
+            {
+            case DA_FORCE_OPEN:
+                if(door_countdown >= (DOOR_COUNTDOWN - DOOR_DOUBLE_PUSH_TIME))
+                    door_action = DA_FORCE_CLOSE;
+
+                door_countdown = DOOR_COUNTDOWN;
+                break;
+            default:
+                door_action = DA_FORCE_OPEN;
+                door_countdown = DOOR_COUNTDOWN;
+                break;       
+            }
+        }    
+        if(door_countdown)
+        {
+            --door_countdown;
+            if(!door_countdown)
+                door_action = DA_NO_ACTION;
+        }
+    }
+}
 
 ISR(TIMER0_OVF_vect)
 {
   handle_leds();
 
   handle_thermo();
-#ifdef VOLT
+
   handle_volt();
-#endif
+
+  //handle_door();
 
   t0ov_counter++;
 }
@@ -528,11 +572,27 @@ ISR(TIMER2_OVF_vect)
     ++debug_data.usb_polls;
 }
 
+
+static void door_open()
+{
+    BIT_ON(PORTC, PORTC0);
+}
+
+static void door_close()
+{
+    BIT_ON(PORTC, PORTC1);
+}
+
+static void door_off()
+{
+    PORTC &= ~((1<<PORTC0)|(1<<PORTC1));
+}
+
 static void init()
 {
     BIT_OFF(MCUCR, PUD);              // enable pull-ups
-    BIT_ON(DDRB, PINB1);              // enable LED
-    BIT_ON(DDRC, PINC0);              // enable relay
+    BIT_ON(DDRB, PORTB1);             // enable LED
+    BIT_ON(DDRC, PORTC0);             // enable relay
     TCCR0B |= ((1<<CS02)|(1<<CS00));  // timer0 clk/1024 prescaler
     BIT_ON(TIMSK0, TOIE0);            // timer0 overflow interrupt
     BIT_ON(TWSR, TWPS1);              // 1/16 TWI prescaler
@@ -541,6 +601,10 @@ static void init()
     //               12MHz / (16 + 2*4*16) = 83kHz
     BIT_ON(TCCR2B, CS22);             // timer2 clk/64 prescaler
     BIT_ON(TIMSK2, TOIE2);            // timer2 overflow interrupt
+
+//    EICRA |= ((1<<ISC11)|(1<<ISC10)); // interrupt on rising edge INT1 (door button)
+
+//    DDRC |= ((1<<PORTC0)|(1<<PORTC1)); // PC0, PC1 for output (door control)
 }
 
 void init_wdt_disable(void) \
@@ -605,6 +669,22 @@ void __attribute__((noreturn)) main(void)
             th_state = TS_FINISH_DONE;
             break;
         }
+
+        /*
+        switch(door_action)
+        {
+        case DA_NO_ACTION:
+            door_off();
+            break;
+        case DA_OPEN:
+        case DA_FORCE_OPEN:
+            door_open();
+            break;
+        case DA_CLOSE:
+        case DA_FORCE_CLOSE:
+            door_close();
+            break;
+        }*/
     }
 }
 

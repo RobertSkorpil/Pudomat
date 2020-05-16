@@ -10,6 +10,14 @@ enum command {
     CMD_CFG_WRITE = 5,
 };
 
+enum door_action {
+    DA_NO_ACTION,
+    DA_OPEN,
+    DA_CLOSE,
+    DA_FORCE_OPEN,
+    DA_FORCE_CLOSE,
+};
+
 #define CONFIG_SIGNATURE 0xCC
 struct config {
     uint64_t door_temp_id_A;
@@ -49,6 +57,8 @@ struct debug_data {
     uint32_t temp_scan_warns;
     uint32_t temp_read_errors;
     uint32_t temp_reads;
+    int8_t door_countdown;
+    int8_t door_action;
 };
     
 #pragma pack(pop)
