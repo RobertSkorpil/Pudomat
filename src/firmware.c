@@ -49,10 +49,10 @@ static struct temp_response temp_response;
 static struct debug_data debug_data;
 
 volatile static enum door_action door_action;
-volatile static int8_t door_countdown;
-#define DOOR_COUNTDOWN 85
+volatile static int16_t door_countdown;
+#define DOOR_COUNTDOWN 700
 #define DOOR_IGNORE_TIME 1
-#define DOOR_DOUBLE_PUSH_TIME 7
+#define DOOR_DOUBLE_PUSH_TIME 10
 
 static void read_config()
 {
@@ -353,13 +353,14 @@ static void finish_temp_read()
         }
     }
 
-    if(door_action != DA_FORCE_CLOSE && door_action != DA_FORCE_OPEN)
-    if(temp_a != -128 && temp_b != -128)
+    if(door_action != DA_FORCE_CLOSE && door_action != DA_FORCE_OPEN
+       && temp_a != -128 && temp_b != -128)
     {
-        if(temp_a - temp_b > config.door_temp_diff_close)
-            door_action = DA_CLOSE;
-        else if(temp_a - temp_b < config.door_temp_diff_open)
+        int8_t diff = temp_b - temp_a;
+        if(diff > config.door_temp_diff_open)
             door_action = DA_OPEN;
+        else if(diff < config.door_temp_diff_close)
+            door_action = DA_CLOSE;
     }
 }
 
@@ -526,11 +527,25 @@ static void handle_volt()
 
 static void handle_door()
 {
-    if(is_time(TIME_350ms, 0))
+    static uint8_t peak = 0;
+    uint8_t pressed = 0;
+    if(is_time(TIME_87ms, 0))
     {        
         if(EIFR & (1<<INTF1)) //button pushed?
         {
             BIT_ON(EIFR, INTF1); //clear interrupt request flag (sic)
+            peak = 1;
+        }
+        else if(peak == 1)
+        {
+            peak = 0;
+            if(PIND & (1<<PIND3))
+            {
+                pressed = 1;
+            }
+        }
+        if(pressed)
+        {
             if(door_countdown <= DOOR_COUNTDOWN - DOOR_IGNORE_TIME)
             {
                 switch(door_action)

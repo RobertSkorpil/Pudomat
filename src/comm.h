@@ -24,8 +24,8 @@ struct config {
     uint64_t door_temp_id_B;
     uint8_t solar_relay_decivolt_lo;
     uint8_t solar_relay_decivolt_hi;
-    uint8_t door_temp_diff_close;
-    uint8_t door_temp_diff_open;
+    int8_t door_temp_diff_close;
+    int8_t door_temp_diff_open;
     uint8_t signature;
 };
 
@@ -57,7 +57,7 @@ struct debug_data {
     uint32_t temp_scan_warns;
     uint32_t temp_read_errors;
     uint32_t temp_reads;
-    int8_t door_countdown;
+    int16_t door_countdown;
     int8_t door_action;
 };
     
